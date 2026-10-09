@@ -55,3 +55,15 @@ def test_nl2sql_generate_use_kb_flag():
     assert on.json()["data"]["candidates"] and off.json()["data"]["candidates"]
     # 均需产出只读 SQL
     assert on.json()["data"]["candidates"][0]["is_read_only"] is True
+
+
+def test_delete_missing_returns_404():
+    c = _client()
+    r = c.delete("/api/v1/kb/documents/999999")
+    assert r.status_code == 404
+
+
+def test_sql_example_import_guards_missing_conversation():
+    c = _client()
+    r = c.post("/api/v1/kb/sql-examples/import", json={"conversation_id": 999999})
+    assert r.status_code == 404

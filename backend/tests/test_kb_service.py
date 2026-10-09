@@ -19,6 +19,24 @@ class TestDocumentCRUD:
         assert db_session.query(kb_service.KBDocument).filter(
             kb_service.KBDocument.id == doc.id).first().enabled == 0
 
+    def test_soft_delete_missing_returns_false(self, db_session):
+        assert kb_service.soft_delete_document(999999, db=db_session) is False
+
+    def test_update_missing_returns_none(self, db_session):
+        body = KBDocumentCreate(kb_type="glossary", title="x", content="y")
+        assert kb_service.update_document(999999, body, db=db_session) is None
+
+    def test_list_filter_by_kb_type(self, db_session):
+        kb_service.create_document(
+            KBDocumentCreate(kb_type="glossary", title="口径A", content="c1"), user="u", db=db_session)
+        kb_service.create_document(
+            KBDocumentCreate(kb_type="rule", title="规则B", content="c2"), user="u", db=db_session)
+        gloss = kb_service.list_documents(kb_type="glossary", page_size=50, db=db_session)
+        rules = kb_service.list_documents(kb_type="rule", page_size=50, db=db_session)
+        assert gloss["total"] >= 1 and rules["total"] >= 1
+        assert all(d["kb_type"] == "glossary" for d in gloss["list"])
+        assert all(d["kb_type"] == "rule" for d in rules["list"])
+
 
 class TestAliasAndSqlExample:
     def test_create_alias(self, db_session):
