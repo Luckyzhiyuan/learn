@@ -9,7 +9,7 @@ import json
 import httpx
 
 from app.config import settings
-from app.core.exceptions import llm_error
+from app.core.exceptions import llm_error, BizError
 from app.core.security import decrypt_secret
 from app.db.session import get_session
 from app.db.models import LlmConfig
@@ -66,7 +66,7 @@ async def chat(prompt: str, use_schema: bool = True) -> str:
                 r.raise_for_status()
                 data = r.json()
                 return data["choices"][0]["message"]["content"]
-            except llm_error.__class__:
+            except BizError:
                 raise
             except Exception as e:
                 last_exc = e

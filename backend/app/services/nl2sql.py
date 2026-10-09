@@ -77,8 +77,8 @@ def generate(question: str, db_hint: str | None = None, n: int = 1, use_kb: bool
         if not sql_text:
             raise nl2sql_fail("LLM 不可用且规则降级失败")
 
-    if not is_read_only(sql_text):
-        # 降级 / 拦截：非只读丢弃
+    if not is_read_only(sql_text) or _is_placeholder(sql_text):
+        # 降级 / 拦截：非只读或模型占位结果，走规则生成
         fallback_used = True
         sql_text, confidence = _fallback_sql(question)
 
@@ -106,6 +106,14 @@ def _extract_json(text: str) -> dict:
         if m:
             return json.loads(m.group(0))
     return {}
+
+
+def _is_placeholder(sql: str) -> bool:
+    """识别 LLM 返回的空 / 占位 SQL（如 SELECT 1 ... WHERE 1=0），应走降级。"""
+    s = (sql or "").strip()
+    if not s:
+        return True
+    return bool(re.search(r"^\s*SELECT\s+1\b", s, re.I) and re.search(r"WHERE\s+1\s*=\s*0", s, re.I))
 
 
 def _fallback_sql(question: str) -> tuple[str, float]:
