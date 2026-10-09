@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能数仓平台</title>
+<style>
+  :root{
+    --bg:#f5f6fa; --card:#fff; --line:#e6e8f0; --brand:#2f54eb; --brand2:#1d39c4;
+    --text:#1f2330; --mut:#6b7280; --ok:#16a34a; --warn:#d97706; --err:#dc2626;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);}
+  header{background:linear-gradient(90deg,var(--brand),var(--brand2));color:#fff;padding:16px 28px;}
+  header h1{font-size:20px;font-weight:600;}
+  header .sub{font-size:12px;opacity:.85;margin-top:4px;}
+  .wrap{display:flex;gap:20px;padding:20px 28px;align-items:flex-start;}
+  nav{width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;}
+  nav button{padding:12px 16px;text-align:left;border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer;font-size:14px;color:var(--text);}
+  nav button.active{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600;}
+  main{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;min-height:72vh;}
+  .tab{display:none;}
+  .tab.active{display:block;}
+  h2{font-size:17px;margin-bottom:6px;}
+  .hint{font-size:12px;color:var(--mut);margin-bottom:18px;}
+  .col{display:flex;flex-wrap:wrap;gap:16px;}
+  .col>div{flex:1;min-width:300px;}
+  .panel{border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px;}
+  .panel h3{font-size:13px;color:var(--mut);margin-bottom:10px;font-weight:600;}
+  label{display:block;font-size:12px;color:var(--mut);margin:8px 0 4px;}
+  input[type=text],select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:inherit;}
+  textarea{resize:vertical;min-height:90px;font-family:Consolas,Menlo,monospace;}
+  .btn{background:var(--brand);color:#fff;border:0;padding:9px 18px;border-radius:6px;cursor:pointer;font-size:14px;}
+  .btn:hover{background:var(--brand2);}
+  .btn.lite{background:#fff;color:var(--brand);border:1px solid var(--brand);}
+  .row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;margin-right:6px;}
+  .tag.o{background:#eef2ff;color:var(--brand);} .tag.p{background:#fff2e0;color:var(--warn);} .tag.b{background:#fff0f0;color:var(--err);}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
+  th{background:#fafbfc;color:var(--mut);font-weight:600;}
+  .badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;}
+  .badge.g{background:#e8f7ee;color:var(--ok);} .badge.r{background:#fee9e9;color:var(--err);} .badge.y{background:#fff4e0;color:var(--warn);}
+  pre.out{background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;overflow:auto;font-family:Consolas,Menlo,monospace;font-size:13px;line-height:1.5;margin-top:10px;white-space:pre-wrap;}
+  .list{font-size:13px;}
+  .list .item{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;cursor:pointer;}
+  .list .item:hover{border-color:var(--brand);}
+  .list .item .t{font-weight:600;}
+  .list .item .c{color:var(--mut);font-size:12px;margin-top:4px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;}
+  .stat{border:1px solid var(--line);border-radius:8px;padding:14px;}
+  .stat .n{font-size:22px;font-weight:700;color:var(--brand);}
+  .stat .l{font-size:12px;color:var(--mut);}
+  .status{margin-top:10px;font-size:13px;}
+  .status.err{color:var(--err);} .status.ok{color:var(--ok);}
+</style>
+</head>
+<body>
+<header>
+  <h1>智能数仓平台</h1>
+  <div class="sub">酒旅数仓数据研发助手 · 元数据 / 智能建模 / NL2SQL / 数据质量</div>
+</header>
+<div class="wrap">
+  <nav>
+    <button class="active" data-tab="meta">🗂 元数据</button>
+    <button data-tab="model">🛠 智能建模</button>
+    <button data-tab="nl">💬 NL2SQL</button>
+    <button data-tab="quality">📊 数据质量</button>
+  </nav>
+  <main>
+    <!-- 元数据 -->
+    <section class="tab active" id="tab-meta">
+      <h2>元数据管理</h2>
+      <div class="hint">浏览数仓库表，查看字段 / 分区 / 血缘。亦可对 sample_ddls 执行 file 模式采集。</div>
+      <div class="row">
+        <input type="text" id="meta-kw" placeholder="搜索库表关键词...">
+        <button class="btn" onclick="loadDatabases()">查询</button>
+        <button class="btn lite" onclick="syncMetadata()">重新采集元数据</button>
+        <span class="status" id="meta-status"></span>
+      </div>
+      <div class="col" style="margin-top:16px;">
+        <div>
+          <div class="panel"><h3>数据库 (点击展开表)</h3><div id="db-list" class="list"></div></div>
+        </div>
+        <div>
+          <div class="panel"><h3>表 (点击查看详情)</h3><div id="tbl-list" class="list"></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>表详情</h3>
+        <div id="tbl-detail">请点击左侧表名查看字段、分区与血缘。</div>
+      </div>
+    </section>
+
+    <!-- 建模 -->
+    <section class="tab" id="tab-model">
+      <h2>智能建模</h2>
+      <div class="hint">按数仓分层规范校验表结构，并一键生成 Hive 建表 DDL。</div>
+      <div class="panel">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:140px;"><label>库名</label><input type="text" id="m-db" value="mid_hotel"></div>
+          <div style="flex:1;min-width:140px;"><label>表名</label><input type="text" id="m-table" placeholder="dwd_xxx"></div>
+          <div style="flex:1;min-width:160px;"><label>表注释</label><input type="text" id="m-comment"></div>
+          <div style="flex:1;min-width:120px;"><label>分区字段</label><select id="m-part"><option value="day">day</option><option value="dt">dt</option></select></div>
+          <div style="flex:1;min-width:110px;"><label>存储格式</label><select id="m-format"><option value="ORC">ORC</option><option value="PARQUET">Parquet</option></select></div>
+        </div>
+        <label>字段 (每行: 字段名|类型|注释,可多行)</label>
+        <textarea id="m-cols" placeholder="order_id|bigint|订单ID&#10;hotel_id|bigint|酒店ID&#10;gmv|double|金额"></textarea>
+        <div class="row">
+          <button class="btn" onclick="modelValidate()">校验</button>
+          <button class="btn lite" onclick="modelGenerate()">生成 DDL</button>
+        </div>
+        <div id="model-out"></div>
+      </div>
+    </section>
+
+    <!-- NL2SQL -->
+    <section class="tab" id="tab-nl">
+      <h2>NL2SQL</h2>
+      <div class="hint">输入中文需求，自动生成只读 SQL（走千问 LLM，不可达时回退规则生成）。</div>
+      <div class="panel">
+        <label>业务问题</label>
+        <textarea id="nl-q" placeholder="例如：统计近7天每个城市的酒店订单总GMV"></textarea>
+        <div class="row">
+          <button class="btn" onclick="nlGenerate()">生成 SQL</button>
+          <span class="status" id="nl-status"></span>
+        </div>
+        <div id="nl-out"></div>
+      </div>
+    </section>
+
+    <!-- 质量 -->
+    <section class="tab" id="tab-quality">
+      <h2>数据质量看板</h2>
+      <div class="hint">质量规则配置与最近执行报告。开发环境规则在服务启动时自动注入示例。</div>
+      <div class="grid" id="q-stat"></div>
+      <div class="row">
+        <button class="btn lite" onclick="loadRules()">刷新规则</button>
+        <button class="btn lite" onclick="loadReports()">刷新报告</button>
+        <span class="status" id="q-status"></span>
+      </div>
+      <div class="col">
+        <div><div class="panel"><h3>质量规则</h3><table id="q-rules"><thead><tr><th>规则</th><th>类型</th><th>状态</th><th>阈值</th><th></th></tr></thead><tbody></tbody></table></div></div>
+        <div><div class="panel"><h3>执行报告</h3><table id="q-reports"><thead><tr><th>规则</th><th>表</th><th>结果</th><th>实际值</th><th>时间</th></tr></thead><tbody></tbody></table></div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const ORIGIN = (location.origin && location.origin !== 'null') ? location.origin : 'http://127.0.0.1:8000';
+const API = ORIGIN + '/api/v1';
+async function call(method, url, body){
+  const opt = {method, headers:{'Content-Type':'application/json'}};
+  if(body!==undefined) opt.body = JSON.stringify(body);
+  const r = await fetch(API+url, opt);
+  const j = await r.json().catch(()=>({code:1,message:r.statusText}));
+  if(j.code!==0) throw new Error(j.message||('HTTP '+r.status));
+  return j.data;
+}
+function $id(x){return document.getElementById(x);}
+function fmt(n){n=+n||0; if(n>=1e12)return (n/1e12).toFixed(2)+'T'; if(n>=1e9)return (n/1e9).toFixed(2)+'G'; if(n>=1e6)return (n/1e6).toFixed(2)+'M'; if(n>=1e3)return (n/1e3).toFixed(0)+'K'; return n;}
+
+// ---------- 导航 ----------
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); $id('tab-'+b.dataset.tab).classList.add('active');
+  if(b.dataset.tab==='meta') loadDatabases();
+  if(b.dataset.tab==='quality'){loadRules();loadReports();}
+});
+
+// ---------- 元数据 ----------
+let curDb=null, curDbId=null;
+async function loadDatabases(){
+  const status=$id('meta-status'); status.className='status'; status.textContent='加载中...';
+  try{
+    const kw=($id('meta-kw').value||'').trim();
+    const d=await call('GET','/databases?keyword='+encodeURIComponent(kw));
+    const box=$id('db-list'); box.innerHTML='';
+    d.list.forEach(x=>{
+      const el=document.createElement('div'); el.className='item';
+      el.innerHTML=`<div class="t">${x.db_name} <span class="tag o">${x.layer||'-'}</span></div><div class="c">${x.remark||''} · owner ${x.owner||'-'}</div>`;
+      el.onclick=()=>loadTables(x.db_name,x.id);
+      box.appendChild(el);
+    });
+    status.className='status ok'; status.textContent=`共 ${d.total} 个库`;
+  }catch(e){status.className='status err';status.textContent=e.message;}
+}
+async function loadTables(dbname,dbId){
+  curDb=dbname; curDbId=dbId;
+  const box=$id('tbl-list'); box.innerHTML='';
+  const d=await call('GET','/databases/'+encodeURIComponent(dbname)+'/tables');
+  d.list.forEach(t=>{
+    const el=document.createElement('div'); el.className='item';
+    el.innerHTML=`<div class="t">${t.table_name} <span class="tag p">${t.is_partitioned?'分区':''}</span><span class="tag b">${t.storage_format||''}</span></div><div class="c">${t.comment||''} · ${fmt(t.row_count)}行 / ${fmt(t.table_size_bytes)}B</div>`;
+    el.onclick=()=>loadTableDetail(t.id);
+    box.appendChild(el);
+  });
+}
+async function loadTableDetail(tid){
+  const box=$id('tbl-detail');
+  try{
+    const t=await call('GET','/tables/'+tid);
+    let html=`<table>
+      <tr><th style="width:120px">归属库</th><td>${t.db_name}.${t.table_name}</td><th style="width:120px">说明</th><td>${t.comment||'-'}</td></tr>
+      <tr><th>存储</th><td>${t.storage_format} + ${t.compress}</td><th>规模</th><td>${fmt(t.row_count)}行 / ${fmt(t.table_size_bytes)}B / ${fmt(t.file_count)}文件</td></tr>
+      <tr><th>owner</th><td>${t.owner||'-'}</td><th>模式</th><td>${t.source_mode}</td></tr></table>`;
+    html+=`<h3 style="margin-top:14px;">字段 (${(t.columns||[]).length})</h3><table><tr><th>#</th><th>字段</th><th>类型</th><th>分区</th><th>注释</th></tr>`;
+    (t.columns||[]).forEach(c=>{html+=`<tr><td>${c.ordinal}</td><td>${c.column_name}</td><td>${c.column_type}</td><td>${c.is_partition?'✔':' '}</td><td>${c.comment||''}</td></tr>`;});
+    html+=`</table>`;
+    html+=`<h3 style="margin-top:14px;">分区</h3><table><tr><th>分区键</th><th>值</th></tr>`;
+    (t.partitions||[]).forEach(p=>{html+=`<tr><td>${p.partition_key}</td><td>${p.partition_value||'-'}</td></tr>`;});
+    html+=`</table>`;
+    try{
+      const lg=await call('GET','/tables/'+tid+'/lineage');
+      if(lg.nodes&&lg.nodes.length){
+        html+=`<h3 style="margin-top:14px;">血缘</h3><table><tr><th>该表血缘节点</th></tr>${lg.nodes.map(n=>`<tr><td>${n.label} (${n.type})</td></tr>`).join('')}</table>`;
+      }
+    }catch(e){}
+    box.innerHTML=html;
+  }catch(e){box.innerHTML=`<span class="status err">${e.message}</span>`;}
+}
+async function syncMetadata(){
+  const s=$id('meta-status'); s.className='status'; s.textContent='采集中...';
+  try{
+    await call('POST','/metadata/sync',{mode:'all',source:'file'});
+    s.className='status ok'; s.textContent='采集完成，已刷新库表';
+    loadDatabases();
+  }catch(e){s.className='status err';s.textContent=e.message;}
+}
+
+// ---------- 建模 ----------
+function parseCols(){
+  return ($id('m-cols').value||'').trim().split('\n').filter(Boolean).map(line=>{
+    const p=line.split('|').map(x=>x.trim());
+    return {name:p[0], type:p[1]||'string', comment:p[2]||''};
+  });
+}
+async function modelValidate(){
+  const out=$id('model-out');
+  const cols=parseCols(); if(!cols.length){out.innerHTML='<span class="status err">请填写字段</span>';return;}
+  const body={db_name:$id('m-db').value,table_name:$id('m-table').value,table_comment:$id('m-comment').value,
+    columns:cols, partition_by:$id('m-part').value, storage_format:$id('m-format').value};
+  try{
+    const r=await call('POST','/modeling/validate',body);
+    let h=`<div class="status ${r.valid?'ok':'err'}">校验状态：${r.valid?'通过 ✔':'未通过 ✘'}</div>`;
+    if(r.violations&&r.violations.length){h+='<table><tr><th>规则</th><th>级别</th><th>说明</th></tr>'+r.violations.map(v=>`<tr><td>${v.rule}</td><td><span class="badge ${v.level==='error'?'r':'y'}">${v.level}</span></td><td>${v.message}</td></tr>`).join('')+'</table>';}
+    out.innerHTML=h;
+  }catch(e){out.innerHTML=`<span class="status err">${e.message}</span>`;}
+}
+async function modelGenerate(){
+  const out=$id('model-out');
+  const cols=parseCols(); if(!cols.length){out.innerHTML='<span class="status err">请填写字段</span>';return;}
+  const body={db_name:$id('m-db').value,table_name:$id('m-table').value,table_comment:$id('m-comment').value,
+    columns:cols, partition_by:$id('m-part').value, storage_format:$id('m-format').value};
+  try{
+    const r=await call('POST','/modeling/generate',body);
+    out.innerHTML=`<div class="status ok">DDL 生成成功：</div><pre class="out">${esc(r.sql)}</pre>`;
+  }catch(e){out.innerHTML=`<span class="status err">${e.message}</span>`;}
+}
+
+// ---------- NL2SQL ----------
+async function nlGenerate(){
+  const q=$id('nl-q').value.trim(); const s=$id('nl-status'); s.className='status'; s.textContent='生成中(可能调用LLM)...';
+  const out=$id('nl-out');
+  if(!q){s.textContent='请输入问题';return;}
+  try{
+    const r=await call('POST','/nl2sql/generate',{question:q,db_hint:'mid_hotel',n:1});
+    if(r.candidates&&r.candidates.length){
+      let h=`<div class="status ${r.fallback_used?'y':'ok'}">${r.fallback_used?'已回退规则生成':'经 LLM 生成'}${r.llm_used?' · '+r.llm_used:''}</div>`;
+      r.candidates.forEach(c=>{h+=`<pre class="out">${esc(c.sql)}`+`<span style="color:#94a3b8;display:block;margin-top:6px;">置信度 ${c.confidence} · 只读 ${c.is_read_only?'✔':'✘'}</span></pre>`;});
+      out.innerHTML=h;
+      s.className='status ok'; s.textContent='完成';
+    }else{
+      out.innerHTML=`<span class="status err">未见返回 SQL</span>`; s.textContent='';
+    }
+  }catch(e){s.className='status err'; s.textContent=e.message;}
+}
+
+// ---------- 质量 ----------
+async function loadRules(){
+  const s=$id('q-status');
+  try{
+    const d=await call('GET','/quality/rules');
+    const rows=(d.list||[]).map(r=>`<tr>
+      <td>${r.rule_name}</td><td>${r.rule_type}</td>
+      <td><span class="badge ${r.enabled?'g':'y'}">${r.enabled?'启用':'停用'}</span></td><td>${r.threshold}</td>
+      <td><button class="btn lite" onclick="runRule(${r.id})">执行</button></td></tr>`).join('');
+    $id('q-rules').querySelector('tbody').innerHTML=rows||'<tr><td colspan=5>暂无规则</td></tr>';
+    $id('q-stat').innerHTML=`
+      <div class="stat"><div class="n">${(d.list||[]).length}</div><div class="l">质量规则</div></div>
+      <div class="stat"><div class="n">${(d.list||[]).filter(x=>x.enabled).length}</div><div class="l">启用规则</div></div>`;
+    s.className='status ok';s.textContent='规则已刷新';
+  }catch(e){s.className='status err';s.textContent=e.message;}
+}
+async function loadReports(){
+  try{
+    const d=await call('GET','/quality/reports');
+    const rows=(d.list||[]).map(r=>`<tr>
+      <td>${r.rule_name}</td><td>${r.table_name}</td>
+      <td><span class="badge ${r.pass?'g':'r'}">${r.pass?'通过':'失败'}</span></td><td>${r.actual_value}</td><td>${(r.execute_time||'').replace('T',' ').slice(0,19)}</td></tr>`).join('');
+    $id('q-reports').querySelector('tbody').innerHTML=rows||'<tr><td colspan=5>暂无报告，可点击上方“执行”运行规则</td></tr>';
+  }catch(e){$id('q-status').className='status err';$id('q-status').textContent=e.message;}
+}
+async function runRule(id){
+  const s=$id('q-status'); s.className='status'; s.textContent='执行中...';
+  try{
+    const r=await call('POST','/quality/rules/'+id+'/run',{});
+    s.className='status ok'; s.textContent='执行完成: '+JSON.stringify(r);
+    loadReports();
+  }catch(e){s.className='status err';s.textContent=e.message;}
+}
+
+function esc(x){return (x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// 初始化
+loadDatabases(); loadRules(); loadReports();
+</script>
+</body>
+</html>

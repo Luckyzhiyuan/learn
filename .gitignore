@@ -1,0 +1,30 @@
+# 运行时产物
+__pycache__/
+*.pyc
+.venv/
+.envbuild/
+venv/
+dist/
+build/
+*.egg-info/
+
+# 本地环境配置（勿提交；模板用 .env.example）
+.env
+!.env.example
+
+# 本地数据与日志
+data/
+logs/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# 模型缓存 / 大文件
+models/
+wheels/
+
+# IDE / 系统
+.vscode/
+.idea/
+.DS_Store
