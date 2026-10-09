@@ -214,6 +214,63 @@ CREATE TABLE IF NOT EXISTS task_info (
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------- 5. 知识库（RAG）三表 ----------
+CREATE TABLE IF NOT EXISTS kb_document (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kb_type     VARCHAR(32)  NOT NULL COMMENT 'glossary口径/alias/同义词/sql_example/mapping/rule',
+  title       VARCHAR(255) NOT NULL,
+  content     TEXT         NOT NULL,
+  tags        VARCHAR(255) NOT NULL DEFAULT '',
+  source      VARCHAR(512) NOT NULL DEFAULT '',
+  related_ids JSON         NULL,
+  enabled     TINYINT      NOT NULL DEFAULT 1,
+  created_by  VARCHAR(64)  NOT NULL DEFAULT '',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_type_enabled (kb_type, enabled),
+  KEY idx_tags (tags(128))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS kb_alias (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kb_type     VARCHAR(32)  NOT NULL DEFAULT 'alias',
+  term        VARCHAR(128) NOT NULL,
+  standard    VARCHAR(128) NOT NULL,
+  score       DECIMAL(5,4) NOT NULL DEFAULT 1.0000,
+  remark      VARCHAR(255) NOT NULL DEFAULT '',
+  enabled     TINYINT      NOT NULL DEFAULT 1,
+  created_by  VARCHAR(64)  NOT NULL DEFAULT '',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_term_type (term, kb_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS kb_sql_example (
+  id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  question     VARCHAR(500) NOT NULL,
+  sql          TEXT         NOT NULL,
+  tables_used  VARCHAR(512) NOT NULL DEFAULT '',
+  tags         VARCHAR(255) NOT NULL DEFAULT '',
+  good_feedback INT         NOT NULL DEFAULT 0,
+  enabled      TINYINT      NOT NULL DEFAULT 1,
+  created_by   VARCHAR(64)  NOT NULL DEFAULT '',
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_tags (tags(128)),
+  KEY idx_question (question(128))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------- 知识库种子：口径/同义词/示例SQL ----------
+INSERT IGNORE INTO kb_document (kb_type, title, content, tags, created_by) VALUES
+  ('glossary', '酒店UV口径', 'UV=去重用户数，使用 userkey 字段 COUNT(DISTINCT userkey)', 'uv,去重,用户', '1207799'),
+  ('glossary', '国内酒店GMV口径', 'GMV=国内酒店各端已支付订单金额之和，来源 dwd_hotel_order_detail.gmv', 'gmv,金额,订单,酒店', '1207799');
+INSERT IGNORE INTO kb_alias (term, standard, remark) VALUES
+  ('UV', 'COUNT(DISTINCT userkey)', '去重用户数'),
+  ('昨日', 'dt = DATE_SUB(CURRENT_DATE,1)', '日期词'),
+  ('GMV', 'SUM(gmv)', '交易额');
+INSERT IGNORE INTO kb_sql_example (question, sql, tables_used, tags) VALUES
+  ('统计昨天国内酒店UV',
+   'SELECT COUNT(DISTINCT userkey) AS uv FROM mid_hotel.dwd_hotel_order_detail WHERE dt=DATE_FORMAT(DATE_SUB(CURRENT_DATE,1),''yyyyMMdd'')',
+   'mid_hotel.dwd_hotel_order_detail', 'uv,酒店,昨日');
+
 -- ---------- 初始化内置用户 ----------
 INSERT INTO sys_user (employee_no, user_name, role) VALUES
   ('1207799', '张三', 'admin'),

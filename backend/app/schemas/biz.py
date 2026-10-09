@@ -62,6 +62,7 @@ class NL2SqlGenReq(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     db_hint: str | None = None
     n: int = Field(1, ge=1, le=3)
+    use_kb: bool = True  # 是否启用知识库 RAG 检索注入（Spec §5.8）
 
 
 class NL2SqlExecuteReq(BaseModel):

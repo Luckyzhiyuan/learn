@@ -14,8 +14,9 @@
 2. [数据库 DDL 全集（MySQL 8.0）](#2-数据库-ddl-全集mysql-80)
 3. [REST API 规范与出入参定义](#3-rest-api-规范与出入参定义)
 4. [千问 Qwen 3.8 LLM 网关交互协议](#4-千问-qwen-38-llm-网关交互协议)
-5. [Celery 异步任务设计](#5-celery-异步任务设计)
-6. [错误码与异常规范](#6-错误码与异常规范)
+5. [知识库（RAG）增强 NL2SQL](#5-知识库rag增强-nl2sql)
+5. [Celery 异步任务设计](#6-celery-异步任务设计)
+6. [错误码与异常规范](#7-错误码与异常规范)
 
 ---
 
@@ -46,6 +47,7 @@ smart-dw-platform/
 │   │   ├── lineage.py           # 血缘
 │   │   ├── schedule.py          # 调度
 │   │   ├── notify.py            # 平台内通知
+│   │   ├── kb.py                # 知识库管理（§5）
 │   │   └── llm.py               # LLM 网关配置
 │   ├── schemas/                 # Pydantic 请求/响应模型（对应 §3）
 │   ├── services/                # 业务逻辑层
@@ -56,11 +58,14 @@ smart-dw-platform/
 │   │   ├── evaluator.py         # 优化效果评估
 │   │   ├── quality_service.py   # 质量校验
 │   │   ├── llm_gateway.py       # 千问 LLM 网关封装（§4）
-│   │   └── nl2sql_service.py    # NL2SQL 编排（schema注入+校验+降级）
+│   │   ├── kb_service.py        # 知识库 CRUD + 多路召回检索（§5）
+│   │   ├── rag.py               # RAG 检索融合 + 提示词组装（§5）
+│   │   └── nl2sql_service.py    # NL2SQL 编排（schema+Kb注入+校验+降级）
 │   ├── tasks/                   # Celery 任务
 │   │   ├── metadata_sync.py
 │   │   ├── quality_run.py
-│   │   └── lineage_build.py
+│   │   ├── lineage_build.py
+│   │   └── embedding_index.py   # 知识库向量重建（§5）
 │   └── utils/
 ├── tests/
 ├── alembic/                     # 数据库迁移
@@ -950,7 +955,178 @@ class NL2SQLCandidate(BaseModel):
 
 ---
 
-## 5. Celery 异步任务设计
+## 5. 知识库（RAG）增强 NL2SQL
+
+### 5.1 为什么需要知识库
+
+仅靠表结构（Schema）生成 SQL，LLM 常因「同一含义多种表达」而选错字段/表（例如「昨日 GMV」可能对应多张候选表）。通过**检索增强生成（RAG）**，把**业务口径、字段同义词、历史查询 SQL、表间关联规则**等额外知识在生成前注入提示词，可显著提升选表、选字段、写过滤条件的准确率。
+
+### 5.2 知识库核心表设计（MySQL，新增）
+
+#### kb_document（知识库文档）
+```sql
+CREATE TABLE kb_document (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kb_type     VARCHAR(32)  NOT NULL COMMENT '文档类型: glossary口径/alias同义词/sql_example历史SQL/mapping映射/rule规则',
+  title       VARCHAR(255) NOT NULL COMMENT '标题',
+  content     TEXT         NOT NULL COMMENT '正文/说明',
+  tags        VARCHAR(255) NOT NULL DEFAULT '' COMMENT '逗号分隔标签，用于检索',
+  source      VARCHAR(512) NOT NULL DEFAULT '' COMMENT '来源(如维基链接)',
+  related_ids JSON         NULL COMMENT '关联表/字段ID 列表',
+  enabled     TINYINT      NOT NULL DEFAULT 1,   
+  created_by  VARCHAR(64)  NOT NULL DEFAULT '',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_type_enabled (kb_type, enabled),
+  KEY idx_tags (tags(128))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='NL2SQL知识库文档';
+```
+
+#### kb_alias（字段/表同义词映射）
+```sql
+CREATE TABLE kb_alias (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kb_type     VARCHAR(32)  NOT NULL COMMENT 'alias 同义词',
+  term        VARCHAR(128) NOT NULL COMMENT '用户常用词/业务词，如"UV"、"去重人数"',
+  standard    VARCHAR(128) NOT NULL COMMENT '标准字段/表/表达式，如 userkey、COUNT(DISTINCT userkey)',
+  score       DECIMAL(5,4) NOT NULL DEFAULT 1.0000 COMMENT '匹配权重',
+  remark      VARCHAR(255) NOT NULL DEFAULT '' COMMENT '说明',
+  enabled     TINYINT      NOT NULL DEFAULT 1,
+  created_by  VARCHAR(64)  NOT NULL DEFAULT '',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_term_type (term, kb_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务词→标准字段/表达式同义词';
+```
+
+#### kb_sql_example（历史查询 / 示例 SQL）
+```sql
+CREATE TABLE kb_sql_example (
+  id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  question     VARCHAR(500) NOT NULL COMMENT '自然语言问题',
+  sql          TEXT         NOT NULL COMMENT '对应SQL',
+  tables_used  VARCHAR(512) NOT NULL DEFAULT '' COMMENT '用到的表，逗号分隔',
+  tags         VARCHAR(255) NOT NULL DEFAULT '' COMMENT '标签',
+  good_feedback INT         NOT NULL DEFAULT 0 COMMENT '被点赞次数',
+  enabled      TINYINT      NOT NULL DEFAULT 1,
+  created_by   VARCHAR(64)  NOT NULL DEFAULT '',
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_tags (tags(128)),
+  KEY idx_question (question(128))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='历史/示例SQL（few-shot 来源）';
+```
+
+### 5.3 RAG 检索流程（NL2SQL 生成前）
+
+```text
+NL2SQL 请求进入
+    │
+    ▼
+[1] 问题理解 ------------> 向量化(Embedding)
+    │
+    ▼
+[2] 多路召回
+    ├── 向量检索: 在 kb_document/kb_sql_example 中按相似度 top-K
+    ├── 关键词检索: 用问题中的业务词命中 kb_alias 同义词、kb_document.tags
+    └── 元数据检索: 命中相关表/字段的评论注释(meta_column)、血缘相关表
+    │
+    ▼
+[3] 重排融合 ------------> 合并去重，按 score 截取 top-N 知识片段
+    │
+    ▼
+[4] 组装提示词 ----------> 把 Schema + 检索到的知识(few-shot + 口径 + 同义词) 注入 system prompt
+    │
+    ▼
+[5] 调用千问生成候选 SQL（详见第4章网关）
+```
+
+### 5.4 提示词组装（知识注入）
+
+在 `llm_gateway.generate()` 中，把检索到的知识按三类注入：
+
+```text
+【知识库-口径】
+- 口径：UV = 去重用户数，使用 userkey 字段 COUNT(DISTINCT userkey)
+- 平台码：10056=艺龙App, 10113=艺龙酒店App ...
+
+【知识库-同义词】
+- 用户说"UV" → userkey
+- 用户说"昨日"/"昨天" → dt = DATE_SUB(CURRENT_DATE,1)
+
+【知识库-示例SQL】
+- 类似问题: ''统计昨天国内酒店UV'' →
+  SELECT COUNT(DISTINCT userkey) FROM mid_hotel.hotel_flow_newubt_gnhotel_di WHERE dt=...
+
+【表结构】
+...（原 Schema 注入）
+```
+
+### 5.5 知识库管理 API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/v1/kb/documents | 新增知识库文档 |
+| GET  | /api/v1/kb/documents | 分页查询(按type/tag/关键词) |
+| PUT  | /api/v1/kb/documents/{id} | 更新 |
+| DELETE | /api/v1/kb/documents/{id} | 删除(软删 enabled=0) |
+| POST | /api/v1/kb/aliases | 新增同义词 |
+| GET  | /api/v1/kb/aliases | 查询同义词 |
+| POST | /api/v1/kb/sql-examples | 新增示例SQL |
+| POST | /api/v1/kb/sql-examples/{id}/import | 从优质会话一键沉淀为示例(见5.6) |
+| GET  | /api/v1/kb/embedding/rebuild | 触发向量重新索引 |
+
+### 5.6 知识闭环（人工 + 自动沉淀）
+
+1. **人工维护**：分析师/数仓在知识库管理页录入口径、同义词、示例SQL。
+2. **自动沉淀**：用户对 NL2SQL 结果**点赞(feedback=1)** 的问答对，一键「沉淀为知识」入 `kb_sql_example`，不断扩充 few-shot 库。
+3. **质量标记**：踩(feedback=-1) 的问答对标记候选，供人工修正口径。
+4. **版本与回滚**：kb_document 通过快照/操作审计保留变更历史（可后续增强）。
+
+### 5.7 所需新增组件
+
+- `app/services/kb_service.py`：知识库 CRUD + 检索（多路召回、重排）。
+- `app/services/rag.py`：Embedding 与检索融合、提示词组装。
+- `app/routers/kb.py`：知识库管理路由。
+- `app/tasks/embedding_index.py`：异步向量重建（Celery）。
+- 向量库：复用第2章预留的 ES `meta_index`，知识库额外建 `kb_index`(type=doc/alias/sql_example) + embedding 字段。
+
+### 5.8 知识库 RAG Pydantic 模型
+
+```python
+class KBDocumentCreate(BaseModel):
+    kb_type: Literal['glossary','alias','sql_example','mapping','rule']
+    title: str = Field(..., max_length=255)
+    content: str = Field(..., max_length=10000)
+    tags: str = ""
+    source: str = ""
+    related_ids: list[int] = []
+
+class RAGContext(BaseModel):
+    glossaries: list[str] = []
+    aliases: list[dict] = []       # {term, standard}
+    sql_examples: list[dict] = []  # {question, sql}
+
+class NL2SQLGenerateRequest(BaseModel):
+    question: str
+    db_hint: str | None = None
+    n: int = 1
+    use_kb: bool = True            # 是否启用知识库检索(可开关)
+```
+
+### 5.9 检索数据来源与维护建议（你要新增的内容）
+
+你可以从以下来源持续补充知识库内容，建议按优先级：
+
+| 优先级 | 来源 | 沉淀为 | 价值 |
+|--------|------|--------|------|
+| ⭐⭐⭐ | 已有的**口径文档**(维基/手册) | glossary | 最高，直接解决口径不一致 |
+| ⭐⭐⭐ | 用户**高频历史查询**与点赞 SQL | sql_example | 精准匹配用户真实问法 |
+| ⭐⭐ | 表/字段**中文注释**批量抽取为同义词 | alias | 低成本、覆盖广 |
+| ⭐⭐ | **业务词字典**(平台码、项目码、日期词) | mapping/glossary | 过滤条件准确率提升 |
+| ⭐ | 血缘关系(常用 JOIN 表对) | rule/mapping | 推荐联表查询 |
+
+---
+
+## 6. Celery 异步任务设计
 
 | 任务 | 队列 | 说明 |
 |------|------|------|
@@ -958,6 +1134,7 @@ class NL2SQLCandidate(BaseModel):
 | `lineage_build` | lineage | 血缘自建（离线回填/增量解析） |
 | `quality_run` | quality | 质量规则执行（提交 Spark，写入结果，超限发通知） |
 | `nl2sql_feedback` | search | 用户反馈异步落库 |
+| `embedding_index` | kb | 知识库向量索引重建（RAG） |
 
 任务定义（tasks/quality_run.py 示例）：
 
@@ -980,7 +1157,7 @@ def quality_run(self, rule_id: int):
 
 ---
 
-## 6. 错误码与异常规范
+## 7. 错误码与异常规范
 
 | code | 含义 | HTTP 状态 |
 |------|------|-----------|
@@ -993,10 +1170,11 @@ def quality_run(self, rule_id: int):
 | 40011 | NL2SQL 生成失败（LLM 不可用且降级失败） | 502 |
 | 40012 | SQL 非只读，已拦截 | 403 |
 | 40013 | 千问 API 调用异常 | 502 |
+| 40014 | 知识库 RAG 检索失败（不影响主流程，可忽略） | 200+警告 |
 | 50000 | 服务器内部错误 | 500 |
 
 异常统一由 `core/exceptions.py` 抛出，`main.py` 全局 handler 捕获并包装为 `{code,message,data}`。
 
 ---
 
-> 本文档为可直接开发的完整工程 Spec。数据库 DDL 可直接执行；API 出入参已定义到 Pydantic 模型；千问网关协议含安全校验与降级策略。
+> 本文档为可直接开发的完整工程 Spec。数据库 DDL 可直接执行；API 出入参已定义到 Pydantic 模型；千问网关协议含安全校验与降级策略；知识库（RAG）用于增强 NL2SQL 生成质量。

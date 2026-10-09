@@ -32,6 +32,26 @@ if settings.task_mode == "dev":
         from app.services import quality
         return quality.run_rule(payload["rule_id"], payload.get("user", ""))
 
+    def run_embedding_index(payload: dict):
+        from app.services import rag
+        return rag.rebuild_index()
+
+    def run_nl2sql_feedback(payload: dict):
+        # 用户反馈落库（Spec §6 nl2sql_feedback）
+        from app.db.session import get_session
+        from app.db.models import QaConversation
+        db = get_session()
+        try:
+            conv = db.query(QaConversation).filter(
+                QaConversation.id == payload.get("conversation_id")).first()
+            if conv and payload.get("feedback") is not None:
+                conv.feedback = payload["feedback"]
+                db.commit()
+                return {"status": "DONE", "feedback": conv.feedback}
+            return {"status": "SKIPPED"}
+        finally:
+            db.close()
+
 else:
     # prod：真实 Celery
     from celery import Celery
@@ -66,7 +86,8 @@ def submit(task_name: str, payload: dict) -> str:
     job_id = f"{task_name}-{uuid.uuid4().hex[:12]}"
     if settings.task_mode == "dev":
         handler = {"metadata_sync": run_metadata_sync, "lineage_build": run_lineage_build,
-                   "quality": run_quality}.get(task_name)
+                   "quality": run_quality, "embedding_index": run_embedding_index,
+                   "nl2sql_feedback": run_nl2sql_feedback}.get(task_name)
         if handler:
             handler(payload)
         return job_id

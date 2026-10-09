@@ -32,6 +32,15 @@ def init_es_index():
                     "entity_type": {"type": "keyword"},
                     "table_id": {"type": "long"}, "column_id": {"type": "long"},
                 }}})
+        if not client.indices.exists(index=settings.es_index_kb):
+            client.indices.create(index=settings.es_index_kb, body={
+                "mappings": {"properties": {
+                    "entity_type": {"type": "keyword"},
+                    "title": {"type": "keyword"},
+                    "content": {"type": "text"},
+                    "tags": {"type": "text"},
+                    "doc_id": {"type": "long"},
+                }}})
         return True
     except Exception:
         return False
@@ -101,10 +110,37 @@ def seed_demo_data():
         db.close()
 
 
+def seed_kb_data():
+    """开发环境知识库种子数据：口径/同义词/示例SQL（Spec §5.2）。"""
+    from app.db.session import get_session
+    from app.db.models import KBDocument, KBAlias, KBSqlExample
+    db = get_session()
+    try:
+        if db.query(KBDocument).count() > 0:
+            return
+        db.add(KBDocument(kb_type="glossary", title="酒店UV口径",
+                          content="UV=去重用户数，使用 userkey 字段 COUNT(DISTINCT userkey)",
+                          tags="uv,去重,用户", created_by="1207799"))
+        db.add(KBDocument(kb_type="glossary", title="国内酒店GMV口径",
+                          content="GMV=国内酒店各端已支付订单金额之和，来源 dwd_hotel_order_detail.gmv",
+                          tags="gmv,金额,订单,酒店", created_by="1207799"))
+        db.add(KBAlias(term="UV", standard="COUNT(DISTINCT userkey)", remark="去重用户数"))
+        db.add(KBAlias(term="昨日", standard="dt = DATE_SUB(CURRENT_DATE,1)", remark="日期词"))
+        db.add(KBAlias(term="GMV", standard="SUM(gmv)", remark="交易额"))
+        db.add(KBSqlExample(question="统计昨天国内酒店UV",
+                            sql="SELECT COUNT(DISTINCT userkey) AS uv FROM mid_hotel.dwd_hotel_order_detail "
+                                "WHERE dt=DATE_FORMAT(DATE_SUB(CURRENT_DATE,1),'yyyyMMdd')",
+                            tables_used="mid_hotel.dwd_hotel_order_detail", tags="uv,酒店,昨日"))
+        db.commit()
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_all()
     seed_demo_data()
+    seed_kb_data()
     init_es_index()
     yield
 

@@ -35,4 +35,4 @@ httpx==0.28.1
 aiosqlite==0.20.0
 
 # ---- 安全加密 ----
-pyaes==1.6.1
+pyaes==1.6.1pytest>=9.0

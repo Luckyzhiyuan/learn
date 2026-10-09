@@ -23,7 +23,7 @@ def search(body: SearchReq):
 
 @router.post("/nl2sql/generate")
 def nl2sql_generate(body: NL2SqlGenReq):
-    result = nl2sql_svc.generate(body.question, body.db_hint, body.n)
+    result = nl2sql_svc.generate(body.question, body.db_hint, body.n, body.use_kb)
     return ok(result)
 
 

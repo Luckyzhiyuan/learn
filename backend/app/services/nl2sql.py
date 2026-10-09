@@ -52,16 +52,20 @@ def _pick_table(question: str) -> str:
         db.close()
 
 
-def generate(question: str, db_hint: str | None = None, n: int = 1) -> dict:
+def generate(question: str, db_hint: str | None = None, n: int = 1, use_kb: bool = True) -> dict:
     fallback_used = False
     sql_text = ""
     schema = _schema_prompt(db_hint)
-    prompt = (
-        "【表结构】\n" + (schema or "(暂无元数据，请基于问题自动推断)\n") +
-        "\n【规则】\n1. 只允许SELECT，禁止DELETE/UPDATE/INSERT/DDL。\n"
-        "2. 分区字段必须过滤。\n3. 输出格式: {\"sql\": \"...\", \"confidence\": 0.0-1.0}\n\n"
-        f"【问题】{question}"
-    )
+    if use_kb:
+        from app.services import rag
+        prompt = rag.assemble_prompt(question, schema)
+    else:
+        prompt = (
+            "【表结构】\n" + (schema or "(暂无元数据，请基于问题自动推断)\n") +
+            "\n【规则】\n1. 只允许SELECT，禁止DELETE/UPDATE/INSERT/DDL。\n"
+            "2. 分区字段必须过滤。\n3. 输出格式: {\"sql\": \"...\", \"confidence\": 0.0-1.0}\n\n"
+            f"【问题】{question}"
+        )
     try:
         raw = __import__("asyncio").run(llm_gateway.chat(prompt))
         parsed = _extract_json(raw)

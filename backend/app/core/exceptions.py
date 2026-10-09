@@ -37,3 +37,8 @@ def sql_not_readonly(msg: str = "SQL 非只读，已拦截"):
 
 def llm_error(msg: str = "千问 API 调用异常"):
     raise BizError(40013, msg, status.HTTP_502_BAD_GATEWAY)
+
+
+def rag_error(msg: str = "知识库 RAG 检索失败"):
+    """知识库检索失败不影响主流程，标记后可返回结果+警告（Spec §7 =40014）。"""
+    raise BizError(40014, msg, status.HTTP_200_OK)

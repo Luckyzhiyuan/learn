@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # ---- Elasticsearch ----
     es_url: str = ""
     es_index_meta: str = "meta_index"
+    es_index_kb: str = "kb_index"  # 知识库向量索引（Spec §5.7）
     # 为空或不可达时回退到 SQL 检索
     es_enabled: bool = False
 
