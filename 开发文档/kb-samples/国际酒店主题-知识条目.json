@@ -1,0 +1,55 @@
+{
+  "source_doc": "https://toca.17u.cn/wiki?fid=873c30147e944fbc9f2360da4f2a8454",
+  "source_title": "国际酒店主题",
+  "generated_at": "2026-10-09",
+  "documents": [
+    {
+      "kb_type": "mapping",
+      "title": "国际酒店流量表映射",
+      "content": "【业务词→表】国际酒店宽表/国际酒店流量 → mid_hotel.hotel_flow_newubt_gjhotel_di；国际资源 → app_ihotel.ihotel_ubt_rid_flow_di；国际城市 → app_ihotel.ihotel_ubt_rcity_uv_di；国际微信 → app_hotel.ihotel_ubt_wx_flow_di；国际APP → app_hotel.ihotel_ubt_app_flow_di；国际支付宝投放 → app_hotel.zfb_refid_user_flow_di。用户说『国际酒店』默认优先指向 hotel_flow_newubt_gjhotel_di。",
+      "tags": "国际,酒店,流量,宽度,资源,城市,微信,APP,支付宝",
+      "source": "https://toca.17u.cn/wiki?fid=873c30147e944fbc9f2360da4f2a8454",
+      "related_table": [
+        "mid_hotel.hotel_flow_newubt_gjhotel_di",
+        "app_ihotel.ihotel_ubt_rid_flow_di",
+        "app_ihotel.ihotel_ubt_rcity_uv_di",
+        "app_hotel.ihotel_ubt_wx_flow_di",
+        "app_hotel.ihotel_ubt_app_flow_di",
+        "app_hotel.zfb_refid_user_flow_di"
+      ],
+      "enabled": 1
+    },
+    {
+      "kb_type": "mapping",
+      "title": "国际酒店平台码(platid)字典",
+      "content": "【平台词→platid】艺龙旅行App=10056；艺龙酒店APP=10113；同程旅行APP=10114；艺龙旅行Pro=10115；同程旅行精选=10116；同程旅行夏季版=10117；同程极速版=10118；艺龙PC站点=10122；艺龙H5站点=10123；微信=10015；同程PC=10000；同程H5=10005；华为快应用=10172；快应用=10039；支付宝小程序=10088；国际站-PC=10036；国际站-香港小程序H5=10020；国际站-H5=10037；城市通小程序=10169。",
+      "tags": "platid,平台码,艺龙,同程,微信,支付宝,国际站",
+      "source": "https://toca.17u.cn/wiki?fid=873c30147e944fbc9f2360da4f2a8454",
+      "enabled": 1
+    },
+    {
+      "kb_type": "glossary",
+      "title": "国际酒店点位口径",
+      "content": "统一点位确定规则：由 action+label+pagename 三个字段共同确定具体点位，点位详细取值存储在 value 字段中，可根据 value 内容提取所需信息。",
+      "tags": "点位,action,label,pagename,value",
+      "source": "https://toca.17u.cn/wiki?fid=873c30147e944fbc9f2360da4f2a8454",
+      "enabled": 1
+    },
+    {
+      "kb_type": "glossary",
+      "title": "国际酒店宽表选型规则",
+      "content": "相较于其他项目宽表，国际酒店宽表(hotel_flow_newubt_gjhotel_di)新增 ip_city(IP解析城市)、ip_province(IP解析省份)、ip_country(IP解析国家) 三个字段。查询『用户IP分布/海外用户分布』等场景应优先使用国际酒店宽表。注意：2024-03-28 国际站数据出海，国内无法接收该部分数据，最新数据存储于海外SR，展示于海外灵动，国内宽表为存量数据。",
+      "tags": "国际,宽表,ip分布,选表,数据出海",
+      "source": "https://toca.17u.cn/wiki?fid=873c30147e944fbc9f2360da4f2a8454",
+      "enabled": 1
+    }
+  ],
+  "aliases": [
+    { "term": "UV", "standard": "COUNT(DISTINCT userkey)", "score": 1.0, "remark": "国际流量表UV统计" },
+    { "term": "去重人数", "standard": "COUNT(DISTINCT userkey)", "score": 0.95, "remark": "UV中文表达" },
+    { "term": "独立访客", "standard": "COUNT(DISTINCT userkey)", "score": 0.9, "remark": "UV中文表达" },
+    { "term": "日期", "standard": "uvdate / adddate", "score": 0.8, "remark": "国际资源/城市/微信/APP表用adddate,宽表用logdate" },
+    { "term": "艺人App", "standard": "platid=10056", "score": 0.95, "remark": "艺龙旅行App平台码" },
+    { "term": "同程App", "standard": "platid=10114", "score": 0.95, "remark": "同程旅行APP平台码" }
+  ]
+}

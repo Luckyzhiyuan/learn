@@ -1178,3 +1178,78 @@ def quality_run(self, rule_id: int):
 ---
 
 > 本文档为可直接开发的完整工程 Spec。数据库 DDL 可直接执行；API 出入参已定义到 Pydantic 模型；千问网关协议含安全校验与降级策略；知识库（RAG）用于增强 NL2SQL 生成质量。
+
+---
+
+## 8. 缺失功能补齐设计草案（对标完整平台，v1.1 规划）
+
+> 对应《功能开发文档》第三部分 F7~F15。此处给到表、API、配置与关键设计要点，供后续按 P0→P2 落地。
+
+### 8.1 新增表设计（MySQL，追加到 §2）
+
+```sql
+-- F7 权限与安全
+CREATE TABLE sys_role (id BIGINT AUTO_INCREMENT PRIMARY KEY, role_code VARCHAR(64) UNIQUE, role_name VARCHAR(128), description VARCHAR(255));
+CREATE TABLE sys_user_role (user_id BIGINT, role_id BIGINT, PRIMARY KEY(user_id, role_id));
+CREATE TABLE sys_perm_point (id BIGINT AUTO_INCREMENT PRIMARY KEY, res_type VARCHAR(32), res_id BIGINT, action VARCHAR(32), grantee_type VARCHAR(16), grantee_id BIGINT, allow BOOLEAN);
+CREATE TABLE data_level (id BIGINT AUTO_INCREMENT PRIMARY KEY, table_id BIGINT, column_id BIGINT, level_code VARCHAR(32), category VARCHAR(64), remark VARCHAR(255));
+CREATE TABLE mask_rule (level_code VARCHAR(32), field_regex VARCHAR(255), mask_type VARCHAR(16) COMMENT 'dynamics|static', expression VARCHAR(255));
+CREATE TABLE audit_log (id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT, action VARCHAR(64), resource VARCHAR(255), sql_text TEXT, ip VARCHAR(64), created_at DATETIME);
+
+-- F8 数据源 / 同步任务
+CREATE TABLE data_source (id BIGINT AUTO_INCREMENT PRIMARY KEY, source_name VARCHAR(128), source_type VARCHAR(32) COMMENT 'jdbc|hive|oss|mq', conn_conf JSON, owner VARCHAR(64), enabled BOOLEAN);
+CREATE TABLE sync_task (id BIGINT AUTO_INCREMENT PRIMARY KEY, task_name VARCHAR(128), src_id BIGINT, dst_id BIGINT, mode VARCHAR(16) COMMENT 'full|incremental', cron VARCHAR(64), enabled BOOLEAN);
+
+-- F9 版本与发布
+CREATE TABLE task_version (id BIGINT AUTO_INCREMENT PRIMARY KEY, task_id BIGINT, version INT, code TEXT, env VARCHAR(16) COMMENT 'dev|prod', status VARCHAR(16), created_by VARCHAR(64), created_at DATETIME);
+
+-- F10 字段级血缘
+CREATE TABLE field_lineage (id BIGINT AUTO_INCREMENT PRIMARY KEY, src_table_id BIGINT, src_col VARCHAR(128), dst_table_id BIGINT, dst_col VARCHAR(128), transformation VARCHAR(255), task_id BIGINT, created_at DATETIME);
+
+-- F13 指标口径
+CREATE TABLE metric_def (id BIGINT AUTO_INCREMENT PRIMARY KEY, metric_code VARCHAR(128) UNIQUE, metric_name VARCHAR(128), biz_domain VARCHAR(64), formula VARCHAR(255), unit VARCHAR(32), remark VARCHAR(255), owner VARCHAR(64));
+CREATE TABLE metric_attr (metric_id BIGINT, table_id BIGINT, column_id BIGINT, PRIMARY KEY(metric_id, table_id, column_id));
+
+-- F11 监控 SLA
+CREATE TABLE sla_def (task_id BIGINT, expect_time VARCHAR(16), warning_time VARCHAR(16), level VARCHAR(16), PRIMARY KEY(task_id));
+```
+
+### 8.2 新增接口（追加到 §3，统一走 `/api/v1`）
+
+| 模块 | 候选接口 |
+|------|---------|
+| 权限(F7) | `GET/POST /roles`、`POST /users/{id}/roles`、`POST /permissions`、`POST /permissions/check`、`POST /audit-logs`、`PUT /data-level` |
+| 脱敏/分级(F7) | `GET/POST /mask-rules`、`PUT /tables/{id}/data-level` |
+| 集成(F8) | `CRUD /data-sources`、`POST /data-sources/{id}/test`、`CRUD /sync-tasks`、`POST /sync-tasks/{id}/run` |
+| 版本(F9) | `POST /tasks/{id}/publish`、`GET /tasks/{id}/versions`、`POST /tasks/{id}/versions/{v}/rollback` |
+| 血缘/影响(F10) | `POST /lineage/field/build`、`GET /tables/{id}/impact?depth=N`、`GET /fields/{id}/lineage` |
+| SLA/监控(F11) | `PUT /sla`、`GET /monitor/alerts` |
+| 成本(F12) | `GET /cost/report`、`CRUD /resource-groups` |
+| 指标(F13) | `CRUD /metrics`、`POST /metrics/{id}/validate`、`GET /metrics/{id}/lineage` |
+| 规范CI(F13) | `POST /sql/review`（复用 `sql/optimize` 规则引擎 + 发布拦截） |
+| Query复用(F13) | `CRUD /query-history`、`POST /query-history/{id}/promote`（→ `kb_sql_example`） |
+| AI增强(F14) | `POST /nl2sql/generate`(新增 `semantic=true`、`user_perm_check=true`)、`GET /nl2sql/{id}/session-chat`、`POST /nl2sql/agent`(多步) |
+
+### 8.3 错误码补增（追加到 §7 表）
+
+| code | 含义 |
+|------|------|
+| 40020 | 无此权限点（403） |
+| 40021 | 行/列级权限拦截（403） |
+| 40022 | 发布校验失败（规范CI/冒烟未通过，400） |
+| 40023 | 字段级血缘解析失败（400） |
+| 40024 | 数据源连接失败（502） |
+
+### 8.4 关键设计要点
+
+1. **权限感知 NL2SQL（F14.2）**：生成阶段将当前用户对相关表的行/列权限作为 prompt 约束 + `finally` 对候选 SQL 做 SQL 级权限校验（按 `meta_table`+行级谓词注入），越权则拒绝。
+2. **字段级血缘（F10.1）**：解析 SQL 时用 sqlglot 提取 select/where/join 的列映射（如 `a.col1 -> b.col2`），写入 `field_lineage`；增量由任务/会话触发。
+3. **影响分析（F10.2）**：以 `field_lineage`/`meta_lineage` 构建有向图，从目标表/字段做 BFS 反向遍历，深度参数化，返回子图供前端可视化。
+4. **发布 CI（F9.3/F13.2）**：复用 `optimizer.RULES`（列裁剪/分区裁剪/禁SELECT*等）生成发布评审报告，未通过则 `40022` 拦截发布。
+5. **指标血缘（F13.1）**：`metric_attr` 把指标关联到表/字段，形成"指标→模型字段"反向映射。
+6. **多轮会话（F14.3）**：以 `qa_conversation` 承载 session，累计上下文并携带最近 N 轮 + 命中的表/知识库片段。
+7. **语义层（F14.1）**：抽象 `semantic_model`（业务对象→表/字段/指标/权限）；NL2SQL 先以语义层解析，再由规则引擎兜底。
+
+### 8.5 配置项补增（追加到 §1.2）
+
+`PERM_ENABLED`（是否启用行/列权限校验）、`AUDIT_ENABLED`（审计开关）、`REVIEW_CHANNEL`（规范CI产物通道）、`COST_REPORT_DIR`。
